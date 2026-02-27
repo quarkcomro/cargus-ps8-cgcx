@@ -1,0 +1,17 @@
+{% extends '@PrestaShop/Admin/layout.html.twig' %}
+
+{% block content %}
+  <div class="card">
+    <h3 class="card-header">Cargus - Settings</h3>
+    <div class="card-body">
+      {{ form_start(form) }}
+        {{ form_widget(form) }}
+        <div class="mt-3">
+          <button class="btn btn-primary" type="submit">
+            Save
+          </button>
+        </div>
+      {{ form_end(form) }}
+    </div>
+  </div>
+{% endblock %}
