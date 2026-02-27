@@ -1,1 +1,11 @@
+# config/services.yml
+services:
+  _defaults:
+    public: true
 
+  Cargus\Controller\Admin\ConfigController:
+    arguments:
+      - '@service_container'
+    tags: ['controller.service_arguments']
+
+  Cargus\Form\Type\ConfigType: ~
