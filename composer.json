@@ -1,0 +1,28 @@
+{
+    "name": "cargus/prestashop-module",
+    "description": "Cargus Advanced Courier Integration for PrestaShop 9",
+    "type": "prestashop-module",
+    "license": "AFL-3.0",
+    "authors": [
+        {
+            "name": "Interdisciplinary Team",
+            "role": "Development"
+        }
+    ],
+    "require": {
+        "php": ">=8.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cargus\\": "src/"
+        },
+        "classmap": [
+            "cargus.php",
+            "controllers/"
+        ]
+    },
+    "config": {
+        "prepend-autoloader": false,
+        "optimize-autoloader": true
+    }
+}

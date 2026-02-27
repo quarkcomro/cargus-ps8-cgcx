@@ -1,0 +1,1 @@
+Mapează tabelele ps_cargus_*

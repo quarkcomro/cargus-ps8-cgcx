@@ -1,0 +1,153 @@
+
+Denumire chat: Cargus-PS8+ v.1.0
+
+Reiau proiectul netermint pentru modulul PrestaShop 8.2 / 9.0 care ebuie să creee curierii Cargus și să facă legăura cu platfoma Cargus de creare și administrare a AWB-urilor prin API-ul lor.
+
+ Proiectul este urcat pe Github aici: https://github.com/quarkcomro/cargus-ps8
+
+
+** Rol: **
+Acționează ca o echipă interdisciplinară alcătuită din experți în: programarea și managementul bazelor de date MySQL and MariaDB, experți în dezvoltarea de module pentru PrestaShop 8 și 9, experți în integrări logistice (Cargus API V3), arhitectură Symfony/PSR-4, proiectare UI/UX, ethical hacking.
+
+** Overview: **
+- Develop the module that integrates Cargus courier in Prestashop.
+- Compatible with PrestaShop 8.2.0 and above (8.2.x, 9.x), including multistore and multilingual support. No backwards compatibility needed.
+- Must follow PrestaShop coding standards and security best practices (no core overrides, use hooks, proper escaping, etc.). All code/comments in English.
+
+
+În directorul ”Documentatie-Resurse”, găsești documentația API - fișierele PDF DocumentationAPIV3-2.3.2-EN.pdf și Cargus-Integration-guideline-for-merchants.pdf.
+În directorul Cargus-API găsești screenshot-uri din interfața API Cargus (https://urgentcargus.developer.azure-api.net/api-details). Dacă ai nevoie de acolo de Tag-uri, Request parameters, Request headers, Request body, Responses, Definitions, application/json, text/json, application/xml, text/xml sau orice alte detalii, ți le aduc.
+În folderul ”cargus-v5.1.22” sunt fișierele modulului Cargus v.5.1.22, dezvoltat de Cargus pentru versiunile anterioere de PrestaShop (1.6 și 1.7). În directorul cargus-admin-screenshots sunt screenshot-uri cu interfața admin a modulului dezvoltat de ei.
+
+Dacă îți este util, aici găsești și sursa Gitlab unde cei de la Cargus au dezvoltat modulul inițial.
+
+
+** Contextul Tehnic Actual: **
+- Modulul are deja o bază funcțională și o instalare curată.
+- Baza de date conține 5 tabele: cargus_pudo (locații Ship&Go), cargus_order_pudo (asociere coș/comandă), cargus_geo_cache (localități API), cargus_agabaritic (reguli greutate/categorii), cargus_awb (istoric expedieri).
+- Identificare curieri: Se face exclusiv dinamic prin external_module_name = 'cargus'.
+- Setări salvate: API Key, Punct de ridicare, Tarife, Dimensiuni implicite și Reguli Logistice (Arbore categorii și prag greutate).
+
+** REGULI STRICTE DE BUSINESS (Nu ai voie să le omiți):
+- Taxe și Zone obligatorii: La instalarea modulului, curierii generați trebuie să primească automat și forțat Taxa RO-Standard (21%) și să fie asociați DOAR cu zona "Europe".
+- Regula Agabaritică (Heavy Cargo): Pragul de referință este cel indicat în documentația curierului și salvat în configurație. Orice depășește acest prag SAU face parte din categoriile salvate în cargus_agabaritic declanșează fluxul special pentru transport agabaritic.
+- Logica "Smart Split": Pentru comenzile mixte, operatorul va primi sugestia de a face o expediție Agabaritică (tarif 30+ sau 50+) SAU de a împărți comanda (1 Colet Agabaritic + X Colete Standard).
+
+** Checklist compatibilitate PrestaShop 8.2 / 9.0 **
+- Nu folosim override-uri dacă există hooks adecvate.
+- BO bazat pe Symfony (Form/Controller) și view-uri Twig; FO pe Smarty (.tpl).
+- composer.json cu autoload PSR-4; fără dependențe care cer versiuni PHP neacceptate.
+- Fără apeluri la API-uri marcate deprecated în 8.x; fallback pentru 9.0 unde s-au schimbat semnături.
+- Asset management cu registerStylesheet/registerJavascript; fără includeri directe hardcode.
+- Traduceri prin trans() (BO) și {l s='' mod='...'} (FO).
+- Multistore: config per shop (folosește Shop::setContext/Configuration::updateValue($key, $val, false, $id_shop_group, $id_shop)).
+- Respectă noul password policy și cookie sameSite acolo unde atingem autentificarea.
+- Suport pentru modul de debug și dev mode fără notice/warnings.
+
+
+** UI/UX **
+- Interacțiunea utilizatorului cu modulul ar trebui să fie fluidă. Implementarea poate folosi AJAX, fără refresh de pagină.
+- Ghidaj Operator: Câmpurile din configurare trebuie să aibă atributul desc (pentru explicații sub câmp) și placeholder pentru a arăta formatul corect (ex: pentru cheia API).
+- Mesaje de eroare contextuale: Dacă API-ul întoarce o eroare, operatorul trebuie să vadă un mesaj uman, nu un cod tehnic.
+- În unele instalări ale PS utilizatorii salvează numele județelor cu diacritice (București, Bacău, Iași etc.), alții le salvează fără diacritice (Bucuresti, Bacau, Iasi etc.). Modulul trebuie să funcționeze în ambele variante, transmițând către API varianta utilizată de acesta.
+- Modulul trebuie să fie rapid și robust, să nu încetinească procesul de cumpărare și de finalizare a comenzii de către utilizatorul final. Evităm page refresh, pe cât posibil.
+- Modulul trebuie să fie compatibil cu alte module, de exemplu Supercheckout de la Knowband. și cu alte theme, de exemplu Z-One.
+- Asigură-te că toate textele afișate utilizatorilor pot fi traduse, folosind sistemul de traduceri PrestaShop (funcția $this->l() sau echivalent, fișiere de traducere) pentru a facilita localizarea modulului.
+- Generează automat fișierele necesare pentru traducerea în limba română a textelor afișate în front office, și fișiere separate pentru textele afișate în admin.
+- Modulele trebuie să folosească API-ul de configurare PrestaShop ținând cont de context (ex: Configuration::updateValue cu parametri pentru id_shop/id_shop_group dacă este cazul) pentru a permite configurări diferite pe fiecare magazin, dacă multistore este activ.
+
+** Installation: **
+- On install, create necessary database tables (e.g., for chat logs, for pricing plans or usage if needed).
+- On uninstall, optionally remove tables/data (if not critical for audit).
+- Register necessary hooks (e.g., display header if need to add JS/CSS, actionAdminControllerSetMedia for back-office assets etc.).
+
+** Self-Testing: **
+- Provide a self-test functionality (accessible to admin) that checks: API connectivity, file write permissions, hooks etc.
+- Include basic unit tests or at least a mechanism to validate that critical functions (like the API call, the retrieval process) work as expected.
+
+** Documentare / HELP / User manual: **
+- modulul să includă și un mic tutorial sau text de introducere pentru utilizatori, explicând cum să îl folosească.
+- utilizează tooltip-uri, placeholdere, atribute desc (pentru explicații sub câmp) explicative, traductibile.
+- Codul și comentariile trebuie scrise în engleză (cerință PrestaShop Marketplace) chiar dacă instrucțiunile din prompt sunt în limba română. Textele vizibile în front-office/back-office vor fi traductibile.
+
+** Logging: **
+- Include mecanisme de logging.
+- Stabilește o perioadă de retenție pentru log-uri (configurabilă) după care acestea să fie șterse automat sau anonimizate, pentru a respecta dreptul la uitare.
+
+** Cerințe de securitate concretă: **
+- Asigură-te că validezi toate intrările de la utilizatori pentru a preveni injecții de cod sau comenzi nedorite. De exemplu, limitează tipurile de fișiere permise, scanează numele fișierelor pentru a evita path traversal, folosește PrestaShop Validate class pentru validări.
+- Protejează apelurile AJAX către API-ul AI cu token de securitate (sau mecanism anti-CSRF) pentru a preveni accesul neautorizat la endpoint-ul modulului. PrestaShop are un mecanism de token pentru formulare/AJAX. Include, de exemplu, un token în JavaScript și verificarea lui în controller, așa cum e sugerat în ghidul PrestaShop.
+- Evită folosirea funcțiilor periculoase (eval, serialize nesecurizat etc.) și urmează bunele practici de prevenire XSS/SQL Injection.
+- Include fișiere index.php goale în directoare și un .htaccess în root-ul modulului pentru protecția directoarelor.
+- Prevenire acces direct: Fiecare fișier .php (inclusiv cele din src/) trebuie să înceapă cu verificarea: if (!defined('_PS_VERSION_')) exit;
+- Codul generat nu trebuie să producă erori sau warnig-uri în modul DEBUG și să urmeze PSR-12 (standardul de codare), precum și regulile Prestashop (nicio modificare a codului de bază, folosirea de hook-uri în loc de override-uri, chei de configurare prefixate pentru a evita coliziunile etc.).
+
+** Cerințe de calitate a codului și testare: **
+- Codul SQL trebuie să fie compatibil cu sintaxele utilizate de ambele tipuri baze date: MySQL și MariaDB.
+- Sugerăm adăugarea în modul a unui buton de test în pagina de configurare, care să permită administratorului să verifice conexiunea la API (de exemplu, după introducerea cheii API, un buton "Test API connection" să facă un request de test și să afișeze rezultatul).
+- Modulul ar trebui să includă un script sau metodă de auto-testare a configurației (verificarea cheilor API, a accesului la servicii cloud, a existenței extensiilor PHP necesare etc.).
+- Orice cod generat trebuie documentat (în cod prin comentarii, plus poate un fișier README.md explicativ pentru marketplace).
+- Asigură-te că modulele de securitate trec un pen-test complet (XSS, SQL Injection, etc.).
+
+** Specificații legate de fișiere și infrastructură: **
+- Creează structura standard de module PrestaShop (fișier principal PHP cu clasa modulului, directoare controllers/, views/templates/front, views/js, translations, etc.). Asigură-te că fiecare director conține fișierul index.php pentru securitate și un .htaccess în root-ul modulului.
+- În codul modulului, declară compatibilitatea la versiuni PrestaShop 8.2.0 până la 9.x, numele autorului, versiunea modulului etc., conform cerințelor (folosește $this->ps_versions_compliancy corespunzător).
+- Implementează metodele-cheie ale clasei modulului: install() (înregistrare hook-uri, crearea tabelelor necesare – ex. pentru log-uri, planuri de preț, etc.), uninstall() (ștergerea datelor/tabelelor create dacă se dorește), getContent() pentru afișarea formularului de configurare în back-office (unde se includ câmpuri pentru API keys, opțiuni de stocare fișiere, setări prețuri, etc.).
+- Include cel puțin un controler front-office (ex. displayChat sau pagină dedicată) și dacă e cazul controlere AJAX separate pentru apeluri.
+- Include fișiere JavaScript necesare (pentru interfața de dialog) și asigură-te că sunt încărcate doar când trebuie (ex: doar pe pagina de dialog, nu global, respectând performance guidelines să nu încarci asset-uri inutil).
+
+** Utilizează un sistem de versionare: **
+- După generarea codului, vom folosi GitHub/GitLab pentru versionare. Propune o structură de repository și eventual un workflow de dezvoltare (branch pentru dezvoltare vs producție) dacă consideri relevant.
+- În fiecare fișier vei indica versiunea acestuia.
+
+
+** Mod de lucru: **
+- Te rog să furnizezi un răspuns structurat, cu secțiuni și eventual liste, acoperind toate punctele de mai sus. Include fragmente de cod exemplificative unde este cazul și asigură-te că explicațiile sunt clare.
+- Te rog să generezi codul complet al modulului conform cerințelor de mai sus. Structurează răspunsul sub formă de blocuri de cod pentru fiecare fișier (indicând numele fișierului și versiunea ca un comentariu sau text înainte de blocul de cod). Comentează codul acolo unde logica nu este evidentă, respectând regulile (comentarii în engleză, cod securizat și optimizat).
+
+** Monitorizare și Licențiere: **
+- Tracking: O metodă simplă (un „phone home” discret) care să trimită către un server central de licențiere URL-ul site-ului unde este activat modulul, numele și versiunea modulului, și versiunea de PHP/PrestaShop.
+
+** Solicitare output: **
+- Provide the code for the PrestaShop module, file by file, with the above requirements. Start by showing the main PHP module class (e.g., mymodule.php), then the front controller PHP, then any other PHP classes (helpers etc.), then the template file(s) and JavaScript. Precede each code block with a comment line indicating the filename and version. Ensure all code is in valid PHP/HTML/JS and follows PrestaShop standards.
+- Always generate complete code, not patches.
+- If we discuss about one issue regarding the code and/or functionalities, generate or modify only the code related to that issue. Do not change, improve, optimise any other code without prior notify.
+- Double-check the code and mentally test it before output. Double-check that the module installs without errors and the main features are logically consistent.
+
+** Reguli de Workflow și Documentare (Protocol de Siguranță): **
+- Fundamentare pe Documentație: Nu face nicio presupunere asupra modului în care funcționează API-ul Cargus V3, rutele de livrare PUDO sau regulile comerciale. Studiază documentația oficială, fișierele de implementare și ofertele comerciale furnizate. Dacă există o nelămurire, solicită informații suplimentare înainte de a scrie o singură linie de cod.
+- Fără Modificări "Silent": Când aplici o corecție sau o optimizare la cerere, este strict interzis să faci alte modificări în cod care nu au fost anunțate și documentate în prealabil. Fiecare schimbare trebuie explicată: „Am modificat X pentru a rezolva Y, restul logicii Z rămâne neschimbată”.
+- Proiectare înainte de Execuție: Nu genera cod masiv înainte de a stabili împreună arhitectura. Procesul va fi:
+-- Propunere logică/algoritm ->
+-- Validare utilizator ->
+-- Generare cod integral.
+- După generarea fiecărui cod și testarea acestuia (atunci când și unde este posibil), dacă testul este OK fă un rezumat de tip changelog, pentru a ține evidența lcrurilor funcționale și a nu strica și repara aceeași problemă de n ori. Orice cod care este funcțional în changelog nu se modifică decât dacă impune structura logică precedentă sau dependentă de acesta.
+- Acuratețe Vizuală: Ține cont de capturile de ecran și de fluxul dorit în interfața de administrare (Admin Order Page) pentru ca elementele UI (butoane, tooltips, ferestre modale) să fie plasate intuitiv și estetic.
+
+Notă: Am cunoștințe limitate și superficile de programare. În plus, am o dizabilitate fizică și tastez mai greu.
+
+Foarte important: Evaluează obiectiv calitatea raționamentului tău și a codului generat. În cazul în care apare o degradare a calității, apar erori, omisiuni etc. datorate memoriei supraîncărcate cu informații reziduale, redundante, irelevante etc., solicită-mi redeschiderea unui now chat. Pregătește ultima versiune corectă a codului, ce urmează de făcut etc. pentru o continuare fluidă în noul chat.
+
+** Referințe: **
+- Manualele de configurare, setare, implementare.
+- https://docs.cloud.prestashop.com/2-technical-development-standards/
+- https://docs.cloud.prestashop.com/2-technical-development-standards/#security-requirements#
+- https://www.knowband.com/blog/prestashop-blog/upgrade-your-prestashop-store-modules-to-stay-compliant-with-gdpr/#:~:text=integrate%20these%20hooks%20to%20the,with%20the%20GDPR%20module%2C%20please
+
+
+** Primul Task: **
+- Confirmă că ai înțeles toate aceste reguli. Solicită lămuriri suplimentare, dacă ai nevoie.
+- Dacă da înțeles tot, analizează codul din directorul de lucru și verifică compatibilitatea cu toate cerințele de mai sus.
+
+
+
+
+
+============= TO DO ==========
+Manual Rollback dacă instalarea dă eroare la SQL:
+Punem execuția SQL într-un bloc try...catch.
+Dacă o interogare dă greș (aruncă o excepție), intrăm în zona de catch.
+Acolo rulăm un script "invers" (un DROP TABLE IF EXISTS pentru toate tabelele pe care modulul a încercat să le creeze).
+Astfel, baza de date rămâne curată, iar administratorul vede eroarea clară fără să aibă tabele "orfane" în sistem.
+
+
