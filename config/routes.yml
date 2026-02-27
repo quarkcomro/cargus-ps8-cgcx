@@ -1,4 +1,10 @@
 # config/routes.yml
+cargus_admin_config:
+  path: /cargus/config
+  methods: [GET, POST]
+  defaults:
+    _controller: 'Cargus\Controller\Admin\ConfigController::index'
+
 cargus_generate_awb:
   path: /cargus/awb/generate/{orderId}
   methods: [GET, POST]
@@ -18,4 +24,5 @@ cargus_return_awb:
   methods: [POST]
   defaults:
     _controller: 'Cargus\Controller\Admin\CargusReturnController::generateReturnAction'
+
     _legacy_controller: 'AdminOrders'
