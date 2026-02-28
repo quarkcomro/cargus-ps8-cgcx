@@ -12,42 +12,48 @@
  * - Subscription quota is displayed in BO only; remaining can exceed included_total due to rollover.
  *
  * Security:
- * - Configuration stored in ps_configuration (phase 1). Sensitive values should be protected in later phases.
+ * - Configuration stored in ps_configuration (phase 1). Sensitive values should be protected later.
  * - AJAX endpoints must use CSRF token (implemented in Symfony layer, not here).
+ *
+ * Post-install checklist:
+ * - Verify carrier taxes for both Cargus carriers:
+ *   Shipping -> Carriers -> (Cargus carriers) -> 2. Shipping locations and costs -> Tax
  */
 
 if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-use PrestaShop\PrestaShop\Core\Module\WidgetInterface;
-
 class Cargus extends CarrierModule
 {
     /** Module technical constants */
     public const MODULE_NAME = 'cargus';
-    public const MODULE_VERSION = '6.2.0'; // Your internal version; align with releases.
+    public const MODULE_VERSION = '6.2.0';
 
     /** Carrier identifiers (stored in Configuration after creation) */
     public const CFG_CARRIER_ADDRESS = 'CARGUS_ID_CARRIER_ADDRESS';
     public const CFG_CARRIER_SHIPGO  = 'CARGUS_ID_CARRIER_SHIPGO';
 
-    /** Forced business rules */
-    public const FORCED_TAX_RULE_NAME = 'TVA RO Standard 21%'; // expected tax rules group name
-    public const FORCED_ZONE_NAME     = 'Europe';             // expected zone name
+    /**
+     * Forced business rules:
+     * - Tax group autodetect by keywords "RO" + "Standard"
+     * - Zone name "Europe"
+     */
+    public const FORCED_TAX_RULE_KEYWORDS = ['RO', 'Standard'];
+    public const FORCED_ZONE_NAME = 'Europe';
 
     /** Config keys (Phase 1 uses ps_configuration) */
-    public const CFG_API_KEY      = 'CARGUS_API_KEY';
-    public const CFG_USERNAME     = 'CARGUS_USERNAME';
-    public const CFG_PASSWORD     = 'CARGUS_PASSWORD';
+    public const CFG_API_KEY  = 'CARGUS_API_KEY';
+    public const CFG_USERNAME = 'CARGUS_USERNAME';
+    public const CFG_PASSWORD = 'CARGUS_PASSWORD';
 
     // Extra services toggles/fees (Phase 1)
-    public const CFG_ENABLE_COD          = 'CARGUS_ENABLE_COD';
-    public const CFG_ENABLE_OPEN_PACKAGE = 'CARGUS_ENABLE_OPEN_PACKAGE';
-    public const CFG_ENABLE_DECLARED_VAL = 'CARGUS_ENABLE_DECLARED_VALUE';
-    public const CFG_ENABLE_SATURDAY     = 'CARGUS_ENABLE_SATURDAY';
-    public const CFG_ENABLE_PRE10        = 'CARGUS_ENABLE_PRE10';
-    public const CFG_ENABLE_PRE12        = 'CARGUS_ENABLE_PRE12';
+    public const CFG_ENABLE_COD           = 'CARGUS_ENABLE_COD';
+    public const CFG_ENABLE_OPEN_PACKAGE  = 'CARGUS_ENABLE_OPEN_PACKAGE';
+    public const CFG_ENABLE_DECLARED_VAL  = 'CARGUS_ENABLE_DECLARED_VALUE';
+    public const CFG_ENABLE_SATURDAY      = 'CARGUS_ENABLE_SATURDAY';
+    public const CFG_ENABLE_PRE10         = 'CARGUS_ENABLE_PRE10';
+    public const CFG_ENABLE_PRE12         = 'CARGUS_ENABLE_PRE12';
 
     public const CFG_FEE_SATURDAY = 'CARGUS_FEE_SATURDAY';
     public const CFG_FEE_PRE10    = 'CARGUS_FEE_PRE10';
@@ -57,12 +63,12 @@ class Cargus extends CarrierModule
     public const CFG_QUOTA_SOURCE    = 'CARGUS_QUOTA_SOURCE';    // manual|api
     public const CFG_QUOTA_REMAINING = 'CARGUS_QUOTA_REMAINING'; // int
 
-    // Heavy/agabaritic threshold
-    public const CFG_HEAVY_THRESHOLD = 'CARGUS_HEAVY_THRESHOLD'; // default 31 kg
+    // Heavy/agabaritic threshold (kg)
+    public const CFG_HEAVY_THRESHOLD = 'CARGUS_HEAVY_THRESHOLD'; // default 31
 
     /**
      * Hardcoded service IDs (Annex / API docs).
-     * We keep them as constants to avoid magic numbers across the codebase.
+     * Keep these as constants to avoid magic numbers across the codebase.
      */
     public const SERVICE_STANDARD              = 1;
     public const SERVICE_ECONOMIC_STANDARD     = 34;
@@ -95,10 +101,11 @@ class Cargus extends CarrierModule
 
     /**
      * Install:
-     * - DB schema (minimal for phase 1).
-     * - Create BO Tab that points to Symfony route.
-     * - Create/Update carriers with forced Tax Rule and Zone.
+     * - Minimal DB schema (phase 1).
+     * - Create BO Tab pointing to Symfony route.
+     * - Create/update carriers with forced Tax Rule + Zone.
      * - Register hooks.
+     * - Set default configuration.
      */
     public function install()
     {
@@ -120,37 +127,29 @@ class Cargus extends CarrierModule
     }
 
     /**
-     * We keep getContent for compatibility with Module Manager entry point,
-     * but the UI is Symfony-based. We redirect to the Symfony route.
+     * Keep getContent for Module Manager entrypoint.
+     * UI is Symfony-based; this method should not render legacy forms.
      */
     public function getContent()
     {
-        // Back office entrypoint -> redirect to Symfony controller
-        if (method_exists($this->context->link, 'getAdminLink')) {
-            // PS will route the Tab to Symfony; still keep safe fallback
-            Tools::redirectAdmin($this->context->link->getAdminLink('AdminModules', true, [], [
-                'configure' => $this->name,
-            ]));
-        }
-
+        // We intentionally do not implement legacy BO UI here.
         return '';
     }
 
     /**
-     * Register hooks used in phase 1 and future phases.
-     * No overrides are used.
+     * Register hooks used in phase 1 and later phases (hooks only; no overrides).
      */
     private function registerHooks(): bool
     {
         return $this->registerHook('actionAdminControllerSetMedia')
-            && $this->registerHook('displayAdminOrder') // smart split suggestion + quota widget (phase 1: placeholder)
-            && $this->registerHook('actionValidateOrder'); // store locker selection / future AWB workflows
+            && $this->registerHook('displayAdminOrder')
+            && $this->registerHook('actionValidateOrder');
     }
 
     /**
      * Minimal DB schema for Phase 1.
      * We keep only agabaritic category mapping here as per your structure.
-     * The rest (tariff cache, quota cache, AWB tables, PUDO tables) can be added in Phase 2/3.
+     * Additional tables (tariffs cache, quota cache, AWB tables, PUDO tables) will be added later.
      */
     private function installDb(): bool
     {
@@ -166,7 +165,6 @@ class Cargus extends CarrierModule
 
     private function uninstallDb(): bool
     {
-        // Keep conservative: remove only what we created in Phase 1.
         $sql = 'DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cargus_agabaritic`;';
         return Db::getInstance()->execute($sql);
     }
@@ -186,7 +184,6 @@ class Cargus extends CarrierModule
             Configuration::updateValue(self::CFG_QUOTA_REMAINING, 0);
         }
 
-        // Defaults for extra services
         foreach ([
             self::CFG_ENABLE_COD,
             self::CFG_ENABLE_OPEN_PACKAGE,
@@ -248,10 +245,7 @@ class Cargus extends CarrierModule
      */
     private function installAdminTab(): bool
     {
-        // Create parent "Cargus" tab (optional). For now we add a single tab in Shipping section.
         $tabClassName = 'AdminCargusConfig';
-
-        // Prevent duplicates
         $existingId = (int) Tab::getIdFromClassName($tabClassName);
         if ($existingId > 0) {
             return true;
@@ -260,10 +254,10 @@ class Cargus extends CarrierModule
         $tab = new Tab();
         $tab->active = 1;
         $tab->class_name = $tabClassName;
-        $tab->route_name = 'cargus_admin_config'; // Symfony route defined in config/routes.yml
+        $tab->route_name = 'cargus_admin_config'; // must exist in config/routes.yml
         $tab->module = $this->name;
 
-        // Place under "Shipping" menu (AdminParentShipping). Fallback to root if not found.
+        // Under "Shipping" parent if available
         $parentId = (int) Tab::getIdFromClassName('AdminParentShipping');
         $tab->id_parent = $parentId > 0 ? $parentId : 0;
 
@@ -292,17 +286,16 @@ class Cargus extends CarrierModule
      * - Ship&Go (locker/PUDO)
      *
      * Forced constraints:
-     * - Tax rule: RO Standard 21%
-     * - Zone: Europe only
+     * - Tax rules group autodetected by keywords RO + Standard
+     * - Zone assignment: Europe only
      */
     private function installOrUpdateCarriers(): bool
     {
-        $ok = true;
-
         $taxRulesGroupId = $this->resolveTaxRulesGroupId();
         $zoneId = $this->resolveEuropeZoneId();
 
-        // Carrier 1: Address
+        $ok = true;
+
         $ok = $ok && $this->createOrUpdateCarrier(
             self::CFG_CARRIER_ADDRESS,
             'Cargus - Delivery (Address)',
@@ -310,7 +303,6 @@ class Cargus extends CarrierModule
             $zoneId
         );
 
-        // Carrier 2: Ship&Go
         $ok = $ok && $this->createOrUpdateCarrier(
             self::CFG_CARRIER_SHIPGO,
             'Cargus - Ship&Go',
@@ -330,7 +322,7 @@ class Cargus extends CarrierModule
             if ($idCarrier > 0) {
                 $carrier = new Carrier($idCarrier);
                 if (Validate::isLoadedObject($carrier)) {
-                    // Soft-delete carrier to keep order history consistent.
+                    // Soft delete to keep order history consistent.
                     $carrier->deleted = 1;
                     $ok = $ok && (bool) $carrier->update();
                 }
@@ -341,11 +333,6 @@ class Cargus extends CarrierModule
         return $ok;
     }
 
-    /**
-     * Create or update a carrier and force:
-     * - Tax rules group
-     * - Zone assignment (Europe only)
-     */
     private function createOrUpdateCarrier(string $cfgKey, string $name, int $taxRulesGroupId, int $zoneId): bool
     {
         $idCarrier = (int) Configuration::get($cfgKey);
@@ -363,8 +350,9 @@ class Cargus extends CarrierModule
         $carrier->external_module_name = $this->name;
         $carrier->need_range = 1;
         $carrier->shipping_external = 1;
+        $carrier->shipping_method = Carrier::SHIPPING_METHOD_WEIGHT;
 
-        // Force tax rule (if resolvable). If not found, keep 0 but log later in BO.
+        // Force tax rules group (if not found -> 0; admin must verify post-install)
         $carrier->id_tax_rules_group = $taxRulesGroupId;
 
         if (!Validate::isLoadedObject($carrier) || (int) $carrier->id <= 0) {
@@ -379,13 +367,9 @@ class Cargus extends CarrierModule
 
         Configuration::updateValue($cfgKey, (int) $carrier->id);
 
-        // Force ranges
+        // Ensure ranges and assignments
         $this->ensureCarrierRanges((int) $carrier->id);
-
-        // Force zone (Europe only)
         $this->forceCarrierZone((int) $carrier->id, $zoneId);
-
-        // Associate carrier with all customer groups
         $this->forceCarrierGroups((int) $carrier->id);
 
         return true;
@@ -393,24 +377,23 @@ class Cargus extends CarrierModule
 
     private function ensureCarrierRanges(int $idCarrier): void
     {
-        // Weight range (0-1000)
-        $weightRange = new RangeWeight();
-        $weightRange->id_carrier = $idCarrier;
-        $weightRange->delimiter1 = 0;
-        $weightRange->delimiter2 = 1000;
-        $weightRange->add();
+        // Weight range 0-1000 kg
+        $wr = new RangeWeight();
+        $wr->id_carrier = $idCarrier;
+        $wr->delimiter1 = 0;
+        $wr->delimiter2 = 1000;
+        $wr->add();
 
-        // Price range (0-100000)
-        $priceRange = new RangePrice();
-        $priceRange->id_carrier = $idCarrier;
-        $priceRange->delimiter1 = 0;
-        $priceRange->delimiter2 = 100000;
-        $priceRange->add();
+        // Price range 0-100000
+        $pr = new RangePrice();
+        $pr->id_carrier = $idCarrier;
+        $pr->delimiter1 = 0;
+        $pr->delimiter2 = 100000;
+        $pr->add();
     }
 
     private function forceCarrierZone(int $idCarrier, int $zoneId): void
     {
-        // Remove all existing zones for carrier
         Db::getInstance()->delete('carrier_zone', 'id_carrier=' . (int) $idCarrier);
 
         if ($zoneId > 0) {
@@ -435,29 +418,23 @@ class Cargus extends CarrierModule
     }
 
     /**
-     * Resolve the RO 21% tax rules group.
-     * Requirement: forced tax rule = "TVA RO Standard 21%".
+     * Resolve the tax rules group by keywords: "RO" and "Standard".
+     * Do NOT rely on VAT percentage because VAT rates may change.
      *
-     * We try:
-     * 1) exact name match
-     * 2) name contains "RO" and "21"
-     * 3) fallback to 0 (no tax group) but keep module installable
-     *
-     * NOTE: If your shop uses a different tax rule group name, update FORCED_TAX_RULE_NAME.
+     * If multiple groups match, we pick the first by id.
+     * Admin should verify taxes post-install (see checklist).
      */
     private function resolveTaxRulesGroupId(): int
     {
-        $name = pSQL(self::FORCED_TAX_RULE_NAME);
+        $k1 = pSQL(self::FORCED_TAX_RULE_KEYWORDS[0]);
+        $k2 = pSQL(self::FORCED_TAX_RULE_KEYWORDS[1]);
 
         $id = (int) Db::getInstance()->getValue(
-            'SELECT id_tax_rules_group FROM `' . _DB_PREFIX_ . 'tax_rules_group` WHERE name = "' . $name . '"'
-        );
-        if ($id > 0) {
-            return $id;
-        }
-
-        $id = (int) Db::getInstance()->getValue(
-            'SELECT id_tax_rules_group FROM `' . _DB_PREFIX_ . 'tax_rules_group` WHERE name LIKE "%RO%" AND name LIKE "%21%"'
+            'SELECT id_tax_rules_group
+             FROM `' . _DB_PREFIX_ . 'tax_rules_group`
+             WHERE name LIKE "%' . $k1 . '%"
+               AND name LIKE "%' . $k2 . '%"
+             ORDER BY id_tax_rules_group ASC'
         );
 
         return $id > 0 ? $id : 0;
@@ -477,12 +454,11 @@ class Cargus extends CarrierModule
     }
 
     /**
-     * Hook: add BO assets when needed.
+     * Hook: add BO assets when needed (optional).
      */
     public function hookActionAdminControllerSetMedia($params): void
     {
-        // Keep lightweight; actual BO UI is Symfony/Twig.
-        // You can register module assets here if needed.
+        // Keep lightweight; BO UI is Symfony/Twig.
         // Example:
         // $this->context->controller->addCSS($this->_path . 'views/css/admin.css');
         // $this->context->controller->addJS($this->_path . 'views/js/admin.js');
@@ -490,16 +466,10 @@ class Cargus extends CarrierModule
 
     /**
      * Hook: Admin Order panel placeholder (Phase 1).
-     * Here we will show:
-     * - Quota (remaining / included_total) in BO only
-     * - Smart Split suggestion (operator decides)
-     *
-     * Phase 1 can render a small Twig/Smarty template, or Symfony panel later.
+     * In Phase 2+ we will show quota widget + Smart Split suggestion here.
      */
     public function hookDisplayAdminOrder($params)
     {
-        // For now, keep as placeholder to avoid mixing legacy templates.
-        // In Phase 2 we can add a dedicated Symfony panel or a BO widget.
         return '';
     }
 
@@ -509,7 +479,7 @@ class Cargus extends CarrierModule
      */
     public function hookActionValidateOrder($params): void
     {
-        // Placeholder for Phase 2/3:
+        // Placeholder for future phases:
         // - copy cart PUDO selection to order
         // - queue AWB creation
         // - log actions
