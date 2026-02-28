@@ -484,4 +484,25 @@ class Cargus extends CarrierModule
         // - queue AWB creation
         // - log actions
     }
+
+        /**
+     * Required by CarrierModule (PS core).
+     * Phase 1: return basic cost (0 for now).
+     * Real pricing logic will be implemented in PricingService later.
+     */
+    public function getOrderShippingCost($params, $shipping_cost)
+    {
+        // Basic placeholder to allow installation and checkout rendering.
+        return 0.0;
+    }
+
+    /**
+     * Required by CarrierModule.
+     * We delegate to getOrderShippingCost().
+     */
+    public function getOrderShippingCostExternal($params)
+    {
+        return $this->getOrderShippingCost($params, 0);
+    }
 }
+
