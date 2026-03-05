@@ -1,7 +1,10 @@
 <?php
 /**
  * src/Install/Installer.php
- * Version: 1.0.0
+ * Version: 1.0.1
+ * @author    Quark
+ * @copyright 2026 Quark
+ * @license   Proprietary
  */
 
 namespace Cargus\Install;
@@ -11,7 +14,6 @@ use Exception;
 use Carrier;
 use Group;
 use Zone;
-use TaxRulesGroup;
 use Configuration;
 use PrestaShopLogger;
 
@@ -111,7 +113,7 @@ class Installer
 
         $carrier = new Carrier();
         $carrier->name = 'Cargus';
-        $carrier->id_tax_rules_group = $this->getRoStandardTaxId();
+        $carrier->id_tax_rules_group = $this->getStandardRoTaxId();
         $carrier->active = true;
         $carrier->deleted = false;
         $carrier->delay = [
@@ -127,7 +129,7 @@ class Installer
         if ($carrier->add()) {
             Configuration::updateValue('CARGUS_CARRIER_ID', $carrier->id);
 
-            // Associate with customer groups
+            // Associate with all customer groups
             $groups = Group::getGroups(true);
             foreach ($groups as $group) {
                 Db::getInstance()->insert('carrier_group', [
@@ -142,8 +144,14 @@ class Installer
                 $carrier->addZone($id_zone_europe);
             }
 
-            // Copy logo
-            copy(dirname(__FILE__) . '/../../views/img/carrier.png', _PS_SHIP_IMG_DIR_ . '/' . (int)$carrier->id . '.jpg');
+            // Copy carrier logo if exists
+            $logoPath = dirname(__FILE__) . '/../../views/img/carrier.png';
+            if (file_exists($logoPath)) {
+                copy($logoPath, _PS_SHIP_IMG_DIR_ . '/' . (int)$carrier->id . '.jpg');
+            }
+
+            // Set the flag to trigger the warning in the Back Office
+            Configuration::updateValue('CARGUS_TAX_ZONE_WARNING', 1);
             
             return true;
         }
@@ -158,25 +166,31 @@ class Installer
      */
     public function installTabs(): bool
     {
-        // Placeholder for tab installation logic (Symfony controllers in PrestaShop 8/9)
-        // Usually done via module routing configuration in routes.yml, 
-        // but legacy fallback can be added here if needed.
+        // Placeholder for tab installation logic
         return true;
     }
 
     /**
-     * Attempts to find the RO-Standard (21%) tax rule ID.
-     * If not found, defaults to 0 to avoid breaking, but logs the missing requirement.
+     * Dynamically identifies the standard tax group ID for Romania.
+     * Searches for the active rule for 'RO' with the highest percentage rate.
      *
      * @return int
      */
-    private function getRoStandardTaxId(): int
+    private function getStandardRoTaxId(): int
     {
-        $sql = "SELECT id_tax_rules_group FROM `" . _DB_PREFIX_ . "tax_rules_group` WHERE name LIKE '%21%' OR name LIKE '%RO%'";
+        $sql = "SELECT trg.id_tax_rules_group 
+                FROM `" . _DB_PREFIX_ . "tax_rules_group` trg
+                JOIN `" . _DB_PREFIX_ . "tax_rule` tr ON trg.id_tax_rules_group = tr.id_tax_rules_group
+                JOIN `" . _DB_PREFIX_ . "country` c ON tr.id_country = c.id_country
+                JOIN `" . _DB_PREFIX_ . "tax` t ON tr.id_tax = t.id_tax
+                WHERE c.iso_code = 'RO' AND trg.active = 1
+                ORDER BY t.rate DESC
+                LIMIT 1";
+
         $id = (int)Db::getInstance()->getValue($sql);
         
         if (!$id) {
-            PrestaShopLogger::addLog('Cargus: Mandatory RO-Standard (21%) Tax Rules Group not found during installation.', 2);
+            PrestaShopLogger::addLog('Cargus: Nu s-a putut detecta automat grupul de taxe standard pentru România la instalare.', 2);
         }
         
         return $id;
