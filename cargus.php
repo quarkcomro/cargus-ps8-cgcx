@@ -1,8 +1,8 @@
 <?php
 /**
  * cargus.php
- * Version: 1.0.0
- * * @author    Quark
+ * Version: 1.0.1
+ * @author    Quark
  * @copyright 2026 Quark
  * @license   Proprietary
  */
@@ -11,7 +11,7 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-// Require Composer's autoloader if it exists (fallback for manual installations)
+// Require Composer's autoloader if it exists
 if (file_exists(dirname(__FILE__) . '/vendor/autoload.php')) {
     require_once dirname(__FILE__) . '/vendor/autoload.php';
 }
@@ -25,7 +25,7 @@ class Cargus extends CarrierModule
     {
         $this->name = 'cargus';
         $this->tab = 'shipping_logistics';
-        $this->version = '1.0.0';
+        $this->version = '1.0.1';
         $this->author = 'Quark';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -39,9 +39,6 @@ class Cargus extends CarrierModule
 
     /**
      * Module installation process.
-     * Delegates complex logic to the Installer service.
-     *
-     * @return bool
      */
     public function install()
     {
@@ -60,27 +57,33 @@ class Cargus extends CarrierModule
 
     /**
      * Module uninstallation process.
-     *
-     * @return bool
      */
     public function uninstall()
     {
         $installer = new Installer($this);
         $installer->uninstallDatabase();
+        
+        // Optional: Remove the warning flag
+        Configuration::deleteByName('CARGUS_TAX_ZONE_WARNING');
 
         return parent::uninstall();
     }
 
     /**
      * Main configuration page in Back Office.
-     * Acts as a controller routing the save action to ConfigurationService.
-     *
-     * @return string HTML output
      */
     public function getContent()
     {
         $output = '';
 
+        // Handle the dismissal of the post-install warning
+        if (Tools::isSubmit('dismissCargusWarning')) {
+            Configuration::updateValue('CARGUS_TAX_ZONE_WARNING', 0);
+            $redirectUrl = $this->context->link->getAdminLink('AdminModules', true) . '&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name;
+            Tools::redirectAdmin($redirectUrl);
+        }
+
+        // Handle form submission
         if (Tools::isSubmit('submitCargusConfig')) {
             $configService = new ConfigurationService();
             $result = $configService->saveConfiguration(Tools::getAllValues());
@@ -92,11 +95,44 @@ class Cargus extends CarrierModule
             }
         }
 
+        // Display the post-installation warning if the flag is active
+        if (Configuration::get('CARGUS_TAX_ZONE_WARNING')) {
+            $output .= $this->renderTaxZoneWarning();
+        }
+
         // Output the instructions manual/tutorial before the form
         $output .= $this->renderInstructions();
 
         // Output the generated form
         return $output . $this->renderHelperForm();
+    }
+
+    /**
+     * Renders the post-installation warning and checklist.
+     *
+     * @return string
+     */
+    private function renderTaxZoneWarning()
+    {
+        $dismissUrl = $this->context->link->getAdminLink('AdminModules', true) . '&configure=' . $this->name . '&dismissCargusWarning=1';
+
+        return '
+        <div class="alert alert-warning">
+            <button type="button" class="close" data-dismiss="alert" onclick="window.location.href=\''.$dismissUrl.'\'">&times;</button>
+            <h4><i class="icon-warning-sign"></i> ' . $this->l('Post-Installation Action Required') . '</h4>
+            <p><strong>' . $this->l('Check tax rate and Zones / Verifică cota de TVA și Zonele de livrare.') . '</strong></p>
+            <p>' . $this->l('The module attempted to auto-configure the standard tax rate and European delivery zone. Please verify these settings to avoid checkout errors.') . '</p>
+            <br>
+            <p><strong>' . $this->l('To Do Checklist:') . '</strong></p>
+            <ul>
+                <li>' . $this->l('Go to Shipping > Carriers and edit the Cargus carrier.') . '</li>
+                <li>' . $this->l('Step 2 (Shipping locations and costs): Ensure the correct Tax rule (e.g., RO Standard Rate) is selected.') . '</li>
+                <li>' . $this->l('Step 2: Ensure the correct geographical Zones (e.g., Europe) are checked.') . '</li>
+                <li>' . $this->l('Step 3 (Size, weight, and group access): Verify maximum package dimensions if applicable.') . '</li>
+            </ul>
+            <br>
+            <a href="'.$dismissUrl.'" class="btn btn-warning">' . $this->l('I have verified the settings (Dismiss)') . '</a>
+        </div>';
     }
 
     /**
@@ -106,12 +142,6 @@ class Cargus extends CarrierModule
      */
     private function renderInstructions()
     {
-        $this->context->smarty->assign([
-            'module_dir' => $this->_path,
-        ]);
-        
-        // This assumes you will have a views/templates/admin/instructions.tpl file
-        // For now, we return a simple HTML block if the template doesn't exist yet.
         return '
         <div class="panel">
             <div class="panel-heading"><i class="icon-info"></i> '.$this->l('Getting Started').'</div>
