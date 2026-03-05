@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 /**
  * src/Install/Installer.php
  * Version: 1.0.1
@@ -10,12 +12,11 @@
 namespace Cargus\Install;
 
 use Db;
-use Exception;
 use Carrier;
+use Configuration;
+use Language;
 use Group;
 use Zone;
-use Configuration;
-use PrestaShopLogger;
 
 if (!defined('_PS_VERSION_')) {
     exit;
@@ -23,136 +24,147 @@ if (!defined('_PS_VERSION_')) {
 
 class Installer
 {
+    /**
+     * @var \Module
+     */
     private $module;
 
+    /**
+     * @param \Module $module
+     */
     public function __construct($module)
     {
         $this->module = $module;
     }
 
     /**
-     * Creates database tables with a fallback/rollback mechanism.
+     * Creates required database tables
      *
      * @return bool
      */
     public function installDatabase(): bool
     {
-        $db = Db::getInstance();
-        $prefix = _DB_PREFIX_;
-        $engine = _MYSQL_ENGINE_;
-
         $queries = [
-            "CREATE TABLE IF NOT EXISTS `{$prefix}cargus_agabaritic` (
-                `id_rule` INT(11) NOT NULL AUTO_INCREMENT,
-                `id_category` INT(11),
-                `weight_threshold` DECIMAL(10,2),
-                PRIMARY KEY (`id_rule`)
-            ) ENGINE={$engine} DEFAULT CHARSET=utf8mb4;",
-            
-            "CREATE TABLE IF NOT EXISTS `{$prefix}cargus_pudo` (
-                `id_pudo` VARCHAR(50) NOT NULL,
-                `name` VARCHAR(255),
-                `address` TEXT,
-                `latitude` DECIMAL(10,8),
-                `longitude` DECIMAL(11,8),
-                PRIMARY KEY (`id_pudo`)
-            ) ENGINE={$engine} DEFAULT CHARSET=utf8mb4;",
-
-            "CREATE TABLE IF NOT EXISTS `{$prefix}cargus_awb` (
-                `id_cargus_awb` INT(11) NOT NULL AUTO_INCREMENT,
-                `id_order` INT(11) NOT NULL,
-                `bar_code` VARCHAR(50),
-                `status` VARCHAR(50),
+            'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'cargus_awb` (
+                `id_cargus_awb` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `id_order` INT(11) UNSIGNED NOT NULL,
+                `bar_code` VARCHAR(255) DEFAULT NULL,
+                `return_awb` VARCHAR(255) DEFAULT NULL,
+                `status` VARCHAR(50) DEFAULT NULL,
                 `date_add` DATETIME NOT NULL,
-                PRIMARY KEY (`id_cargus_awb`)
-            ) ENGINE={$engine} DEFAULT CHARSET=utf8mb4;"
+                `date_upd` DATETIME NOT NULL,
+                PRIMARY KEY  (`id_cargus_awb`),
+                INDEX (`id_order`)
+            ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8;',
+            
+            'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'cargus_pudo` (
+                `id_cargus_pudo` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                `id_cart` INT(11) UNSIGNED NOT NULL,
+                `pudo_id` VARCHAR(50) NOT NULL,
+                `pudo_name` VARCHAR(255) NOT NULL,
+                `pudo_address` VARCHAR(255) NOT NULL,
+                PRIMARY KEY  (`id_cargus_pudo`),
+                INDEX (`id_cart`)
+            ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8;'
         ];
 
-        try {
-            foreach ($queries as $query) {
-                if (!$db->execute($query)) {
-                    throw new Exception("SQL execution failed: " . $query);
-                }
+        foreach ($queries as $query) {
+            if (!Db::getInstance()->execute($query)) {
+                return false;
             }
-        } catch (Exception $e) {
-            PrestaShopLogger::addLog('Cargus Install Error: ' . $e->getMessage(), 3);
-            $this->uninstallDatabase(); // Rollback
-            return false;
         }
 
         return true;
     }
 
     /**
-     * Removes database tables cleanly.
+     * Drops module database tables
      *
      * @return bool
      */
     public function uninstallDatabase(): bool
     {
-        $db = Db::getInstance();
-        $prefix = _DB_PREFIX_;
+        $queries = [
+            'DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cargus_awb`',
+            'DROP TABLE IF EXISTS `' . _DB_PREFIX_ . 'cargus_pudo`'
+        ];
 
-        $db->execute("DROP TABLE IF EXISTS `{$prefix}cargus_agabaritic`");
-        $db->execute("DROP TABLE IF EXISTS `{$prefix}cargus_pudo`");
-        $db->execute("DROP TABLE IF EXISTS `{$prefix}cargus_awb`");
+        foreach ($queries as $query) {
+            if (!Db::getInstance()->execute($query)) {
+                return false;
+            }
+        }
 
         return true;
     }
 
     /**
-     * Creates the Cargus carrier with strict business rules.
+     * Installs and configures the Carrier
      *
      * @return bool
      */
     public function installCarrier(): bool
     {
         if (Configuration::get('CARGUS_CARRIER_ID')) {
-            return true; // Already installed
+            return true;
         }
 
         $carrier = new Carrier();
         $carrier->name = 'Cargus';
-        $carrier->id_tax_rules_group = $this->getStandardRoTaxId();
-        $carrier->active = true;
-        $carrier->deleted = false;
-        $carrier->delay = [
-            (int)Configuration::get('PS_LANG_DEFAULT') => 'Livrare rapidă (24-48h)'
-        ];
-        $carrier->shipping_handling = false;
-        $carrier->range_behavior = 0;
         $carrier->is_module = true;
+        $carrier->active = 1;
+        $carrier->range_behavior = 1;
+        $carrier->need_range = 1;
         $carrier->shipping_external = true;
         $carrier->external_module_name = $this->module->name;
-        $carrier->need_range = true;
+        $carrier->shipping_method = Carrier::SHIPPING_METHOD_WEIGHT;
+
+        foreach (Language::getLanguages(true) as $language) {
+            $carrier->delay[(int)$language['id_lang']] = 'Livrare în 24-48 ore / Delivery in 24-48 hours';
+        }
 
         if ($carrier->add()) {
-            Configuration::updateValue('CARGUS_CARRIER_ID', $carrier->id);
-
-            // Associate with all customer groups
             $groups = Group::getGroups(true);
             foreach ($groups as $group) {
-                Db::getInstance()->insert('carrier_group', [
-                    'id_carrier' => (int)$carrier->id,
-                    'id_group' => (int)$group['id_group']
-                ]);
+                Db::getInstance()->execute('INSERT INTO `' . _DB_PREFIX_ . 'carrier_group` (id_carrier, id_group) VALUES (' . (int)$carrier->id . ', ' . (int)$group['id_group'] . ')');
             }
 
-            // Associate ONLY with the Europe Zone (Strict rule)
-            $id_zone_europe = Zone::getIdByName('Europe');
-            if ($id_zone_europe) {
-                $carrier->addZone($id_zone_europe);
+            $rangePrice = new \RangePrice();
+            $rangePrice->id_carrier = $carrier->id;
+            $rangePrice->delimiter1 = '0';
+            $rangePrice->delimiter2 = '10000';
+            $rangePrice->add();
+
+            $rangeWeight = new \RangeWeight();
+            $rangeWeight->id_carrier = $carrier->id;
+            $rangeWeight->delimiter1 = '0';
+            $rangeWeight->delimiter2 = '10000';
+            $rangeWeight->add();
+
+            $zones = Zone::getZones(true);
+            foreach ($zones as $zone) {
+                if ($zone['name'] === 'Europe') {
+                    Db::getInstance()->execute('INSERT INTO `' . _DB_PREFIX_ . 'carrier_zone` (id_carrier, id_zone) VALUES (' . (int)$carrier->id . ', ' . (int)$zone['id_zone'] . ')');
+                    Db::getInstance()->execute('INSERT INTO `' . _DB_PREFIX_ . 'delivery` (id_carrier, id_range_price, id_range_weight, id_zone, price) VALUES (' . (int)$carrier->id . ', ' . (int)$rangePrice->id . ', NULL, ' . (int)$zone['id_zone'] . ', 0)');
+                    Db::getInstance()->execute('INSERT INTO `' . _DB_PREFIX_ . 'delivery` (id_carrier, id_range_price, id_range_weight, id_zone, price) VALUES (' . (int)$carrier->id . ', NULL, ' . (int)$rangeWeight->id . ', ' . (int)$zone['id_zone'] . ', 0)');
+                }
             }
 
-            // Copy carrier logo if exists
-            $logoPath = dirname(__FILE__) . '/../../views/img/carrier.png';
-            if (file_exists($logoPath)) {
-                copy($logoPath, _PS_SHIP_IMG_DIR_ . '/' . (int)$carrier->id . '.jpg');
-            }
+            @copy(dirname(__FILE__) . '/../../../logo.png', _PS_SHIP_IMG_DIR_ . '/' . (int)$carrier->id . '.jpg');
 
-            // Set the flag to trigger the warning in the Back Office
-            Configuration::updateValue('CARGUS_TAX_ZONE_WARNING', 1);
+            Configuration::updateValue('CARGUS_CARRIER_ID', (int)$carrier->id);
+            Configuration::updateValue('CARGUS_CARRIER_REFERENCE', (int)$carrier->id);
             
+            // Extragere ID taxă (corectat: fără LIMIT 1)
+            $sql = 'SELECT id_tax_rules_group FROM `' . _DB_PREFIX_ . 'tax_rules_group` WHERE active = 1 AND deleted = 0';
+            $id_tax_rules_group = (int) Db::getInstance()->getValue($sql);
+            
+            if ($id_tax_rules_group > 0) {
+                $carrier->setTaxRulesGroup($id_tax_rules_group);
+            } else {
+                Configuration::updateValue('CARGUS_TAX_ZONE_WARNING', 1);
+            }
+
             return true;
         }
 
@@ -160,39 +172,12 @@ class Installer
     }
 
     /**
-     * Registers Admin tabs.
+     * Registers Back Office tabs (To be implemented with controllers)
      *
      * @return bool
      */
     public function installTabs(): bool
     {
-        // Placeholder for tab installation logic
         return true;
-    }
-
-    /**
-     * Dynamically identifies the standard tax group ID for Romania.
-     * Searches for the active rule for 'RO' with the highest percentage rate.
-     *
-     * @return int
-     */
-    private function getStandardRoTaxId(): int
-    {
-        $sql = "SELECT trg.id_tax_rules_group 
-                FROM `" . _DB_PREFIX_ . "tax_rules_group` trg
-                JOIN `" . _DB_PREFIX_ . "tax_rule` tr ON trg.id_tax_rules_group = tr.id_tax_rules_group
-                JOIN `" . _DB_PREFIX_ . "country` c ON tr.id_country = c.id_country
-                JOIN `" . _DB_PREFIX_ . "tax` t ON tr.id_tax = t.id_tax
-                WHERE c.iso_code = 'RO' AND trg.active = 1
-                ORDER BY t.rate DESC
-                LIMIT 1";
-
-        $id = (int)Db::getInstance()->getValue($sql);
-        
-        if (!$id) {
-            PrestaShopLogger::addLog('Cargus: Nu s-a putut detecta automat grupul de taxe standard pentru România la instalare.', 2);
-        }
-        
-        return $id;
     }
 }
