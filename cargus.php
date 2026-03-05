@@ -1,7 +1,7 @@
 <?php
 /**
  * cargus.php
- * Version: 1.0.2
+ * Version: 1.0.3
  * @author    Quark
  * @copyright 2026 Quark
  * @license   Proprietary
@@ -25,7 +25,7 @@ class Cargus extends CarrierModule
     {
         $this->name = 'cargus';
         $this->tab = 'shipping_logistics';
-        $this->version = '1.0.2';
+        $this->version = '1.0.3';
         $this->author = 'Quark';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -102,12 +102,6 @@ class Cargus extends CarrierModule
         </div>';
     }
 
-    /**
-     * Attempts to fetch pickup locations to populate the dropdown.
-     * Fails silently and returns empty array if API is not yet configured.
-     *
-     * @return array
-     */
     private function getPickupLocationsForDropdown(): array
     {
         $options = [
@@ -151,7 +145,6 @@ class Cargus extends CarrierModule
         $pickupLocations = $this->getPickupLocationsForDropdown();
 
         $fields_form = [
-            // Tab 1: API Credentials
             [
                 'form' => [
                     'legend' => ['title' => $this->l('1. API Credentials'), 'icon' => 'icon-cogs'],
@@ -175,7 +168,6 @@ class Cargus extends CarrierModule
                     'submit' => ['title' => $this->l('Save Configuration'), 'class' => 'btn btn-default pull-right']
                 ]
             ],
-            // Tab 2: Pricing & Logistics
             [
                 'form' => [
                     'legend' => ['title' => $this->l('2. Pricing & Logistics'), 'icon' => 'icon-money'],
@@ -199,7 +191,6 @@ class Cargus extends CarrierModule
                     'submit' => ['title' => $this->l('Save Configuration'), 'class' => 'btn btn-default pull-right']
                 ]
             ],
-            // Tab 3: Shipping Defaults & Client Options
             [
                 'form' => [
                     'legend' => ['title' => $this->l('3. Shipping Defaults & Client Options'), 'icon' => 'icon-truck'],
@@ -239,7 +230,6 @@ class Cargus extends CarrierModule
             ]
         ];
 
-        // Load values
         $keys = [
             'CARGUS_API_URL', 'CARGUS_SUBSCRIPTION_KEY', 'CARGUS_USERNAME', 'CARGUS_PASSWORD', 'CARGUS_PICKUP_LOCATION',
             'CARGUS_CALC_MODE', 'CARGUS_PRICE_BASE', 'CARGUS_PRICE_PUDO', 'CARGUS_PRICE_KG', 'CARGUS_PRICE_HEAVY_OFFSET',
@@ -251,11 +241,35 @@ class Cargus extends CarrierModule
             $helper->fields_value[$key] = Configuration::get($key);
         }
 
-        // Defaults if empty
         if (!$helper->fields_value['CARGUS_CALC_MODE']) $helper->fields_value['CARGUS_CALC_MODE'] = 'local';
         if (!$helper->fields_value['CARGUS_HEAVY_THRESHOLD']) $helper->fields_value['CARGUS_HEAVY_THRESHOLD'] = 31;
         if (!$helper->fields_value['CARGUS_DEFAULT_PAYER']) $helper->fields_value['CARGUS_DEFAULT_PAYER'] = 1;
 
         return $helper->generateForm($fields_form);
+    }
+
+    /**
+     * Required by CarrierModuleCore
+     * Calculates the shipping cost for the current cart.
+     *
+     * @param Cart $params
+     * @param float $shipping_cost
+     * @return float|bool Shipping cost or false if not available
+     */
+    public function getOrderShippingCost($params, $shipping_cost)
+    {
+        // Placeholder: Will be replaced by CargusPricingService logic
+        return (float)$shipping_cost; 
+    }
+
+    /**
+     * Required by CarrierModuleCore
+     *
+     * @param Cart $params
+     * @return float|bool
+     */
+    public function getOrderShippingCostExternal($params)
+    {
+        return $this->getOrderShippingCost($params, 0);
     }
 }
