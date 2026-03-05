@@ -1,7 +1,7 @@
 <?php
 /**
  * cargus.php
- * Version: 1.0.3
+ * Version: 1.0.4
  * @author    Quark
  * @copyright 2026 Quark
  * @license   Proprietary
@@ -11,8 +11,14 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
+// 1. Încercăm încărcarea automată prin Composer
 if (file_exists(dirname(__FILE__) . '/vendor/autoload.php')) {
     require_once dirname(__FILE__) . '/vendor/autoload.php';
+} else {
+    // 2. Fallback manual dacă arhiva nu conține directorul vendor/ (evită ClassNotFoundError)
+    require_once dirname(__FILE__) . '/src/Install/Installer.php';
+    require_once dirname(__FILE__) . '/src/Helper/CargusV3Client.php';
+    require_once dirname(__FILE__) . '/src/Service/Config/ConfigurationService.php';
 }
 
 use Cargus\Install\Installer;
@@ -25,7 +31,7 @@ class Cargus extends CarrierModule
     {
         $this->name = 'cargus';
         $this->tab = 'shipping_logistics';
-        $this->version = '1.0.3';
+        $this->version = '1.0.4';
         $this->author = 'Quark';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -258,7 +264,6 @@ class Cargus extends CarrierModule
      */
     public function getOrderShippingCost($params, $shipping_cost)
     {
-        // Placeholder: Will be replaced by CargusPricingService logic
         return (float)$shipping_cost; 
     }
 
