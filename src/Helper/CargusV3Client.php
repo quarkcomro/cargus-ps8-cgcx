@@ -1,12 +1,16 @@
 <?php
 /**
- * @author    Quark
+ * src/Helper/CargusV3Client.php
+ * Version: 1.0.0
+ * * @author    Quark
  * @copyright 2026 Quark
  * @license   Proprietary
- * @version   1.0.4
  */
 
 namespace Cargus\Helper;
+
+use Exception;
+use Configuration;
 
 if (!defined('_PS_VERSION_')) {
     exit;
@@ -21,14 +25,17 @@ class CargusV3Client
 
     public function __construct()
     {
-        $this->apiUrl = \Configuration::get('CARGUS_API_URL');
-        $this->subscriptionKey = \Configuration::get('CARGUS_SUBSCRIPTION_KEY');
+        $this->apiUrl = Configuration::get('CARGUS_API_URL');
+        $this->subscriptionKey = Configuration::get('CARGUS_SUBSCRIPTION_KEY');
     }
 
     /**
-     * Normalizarea diacriticelor (sedilă și virgulă)
+     * Normalizes diacritics (cedilla and comma) for safe API transmission.
+     *
+     * @param string $string
+     * @return string
      */
-    public static function normalizeString($string)
+    public static function normalizeString(string $string): string
     {
         if (empty($string)) {
             return $string;
@@ -36,8 +43,8 @@ class CargusV3Client
 
         $search = [
             'ă', 'Ă', 'â', 'Â', 'î', 'Î',
-            'ș', 'Ș', 'ț', 'Ț', // Virgulă
-            'ş', 'Ş', 'ţ', 'Ţ'  // Sedilă
+            'ș', 'Ș', 'ț', 'Ț', // Comma
+            'ş', 'Ş', 'ţ', 'Ţ'  // Cedilla
         ];
         $replace = [
             'a', 'A', 'a', 'A', 'i', 'I',
@@ -49,50 +56,64 @@ class CargusV3Client
     }
 
     /**
-     * Autentificare cu sistem de Caching (Prevenire HTTP 409)
+     * Authentication with Caching System (Prevents HTTP 409 Conflict).
+     *
+     * @return string Bearer Token
+     * @throws Exception
      */
-    public function login()
+    public function login(): string
     {
-        $username = \Configuration::get('CARGUS_USERNAME');
-        $password = \Configuration::get('CARGUS_PASSWORD');
+        $username = Configuration::get('CARGUS_USERNAME');
+        $password = Configuration::get('CARGUS_PASSWORD');
 
         if (!$username || !$password || !$this->subscriptionKey) {
-            throw new \Exception('Lipsesc credențiale API. Te rugăm să le configurezi în Tab-ul 1.');
+            throw new Exception('Missing API credentials. Please configure them in the module settings.');
         }
 
-        // 1. Verificăm dacă avem un token valid salvat
-        $savedToken = \Configuration::get('CARGUS_BEARER_TOKEN');
-        $tokenExpire = (int)\Configuration::get('CARGUS_TOKEN_EXPIRE');
+        // 1. Check if we have a valid saved token
+        $savedToken = Configuration::get('CARGUS_BEARER_TOKEN');
+        $tokenExpire = (int)Configuration::get('CARGUS_TOKEN_EXPIRE');
 
         if ($savedToken && $tokenExpire > time()) {
             $this->token = $savedToken;
             return $this->token;
         }
 
-        // 2. Dacă nu avem token valid, cerem unul nou
+        // 2. If no valid token, request a new one
         $response = $this->request('LoginUser', 'POST', [
             'UserName' => $username,
             'Password' => $password
         ], false);
 
         if (isset($response['error'])) {
-            throw new \Exception('Autentificare eșuată: ' . $this->translateError($response['error']));
+            throw new Exception('Authentication failed: ' . $this->translateError($response['error']));
         }
 
-        $this->token = $response; 
+        // Cargus returns the token directly as a string or inside an array depending on the exact endpoint version
+        $this->token = is_array($response) && isset($response['token']) ? $response['token'] : (string)$response; 
         
-        // 3. Salvăm noul token cu o valabilitate de sub 2 ore (7000 secunde)
-        \Configuration::updateValue('CARGUS_BEARER_TOKEN', $this->token);
-        \Configuration::updateValue('CARGUS_TOKEN_EXPIRE', time() + 7000);
+        // 3. Save the new token with a validity of slightly under 2 hours (7000 seconds)
+        Configuration::updateValue('CARGUS_BEARER_TOKEN', $this->token);
+        Configuration::updateValue('CARGUS_TOKEN_EXPIRE', time() + 7000);
 
         return $this->token;
     }
 
     /**
-     * Metoda centrală pentru request-uri
+     * Core method for executing API requests.
+     *
+     * @param string $endpoint API endpoint
+     * @param string $method HTTP method (GET, POST, PUT, DELETE)
+     * @param array $data Payload data
+     * @param bool $useAuth Whether to inject the Bearer token
+     * @return mixed Response array, string, or error array
      */
-    public function request($endpoint, $method = 'GET', $data = [], $useAuth = true)
+    public function request(string $endpoint, string $method = 'GET', array $data = [], bool $useAuth = true)
     {
+        if (empty($this->apiUrl)) {
+            return ['error' => 'API URL is not configured.'];
+        }
+
         $url = rtrim($this->apiUrl, '/') . '/' . ltrim($endpoint, '/');
         
         $headers = [
@@ -103,7 +124,11 @@ class CargusV3Client
 
         if ($useAuth) {
             if (!$this->token) {
-                $this->login();
+                try {
+                    $this->login();
+                } catch (Exception $e) {
+                    return ['error' => $e->getMessage()];
+                }
             }
             $headers[] = 'Authorization: Bearer ' . $this->token;
         }
@@ -113,13 +138,17 @@ class CargusV3Client
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true); // Added for security
 
-        if (strtoupper($method) === 'POST') {
+        $method = strtoupper($method);
+        if ($method === 'POST') {
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-        } elseif (strtoupper($method) === 'PUT') {
-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'PUT');
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        } elseif ($method === 'PUT' || $method === 'DELETE') {
+            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+            if (!empty($data)) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+            }
         }
 
         $response = curl_exec($ch);
@@ -128,13 +157,20 @@ class CargusV3Client
         curl_close($ch);
 
         if ($curlError) {
-            return ['error' => 'Eroare conexiune server: ' . $curlError];
+            return ['error' => 'Server connection error: ' . $curlError];
         }
 
         $decodedResponse = json_decode($response, true);
 
+        // Handle API level errors
         if ($httpCode >= 400) {
-            $errorMessage = isset($decodedResponse['message']) ? $decodedResponse['message'] : 'Eroare HTTP ' . $httpCode;
+            $errorMessage = isset($decodedResponse['message']) ? $decodedResponse['message'] : 'HTTP Error ' . $httpCode;
+            
+            // Extract specific Cargus nested error data if available
+            if (isset($decodedResponse['ErrorData'])) {
+                 $errorMessage .= ' Details: ' . json_encode($decodedResponse['ErrorData']);
+            }
+            
             return ['error' => $errorMessage, 'code' => $httpCode];
         }
 
@@ -142,19 +178,25 @@ class CargusV3Client
     }
 
     /**
-     * Traducerea erorilor comune
+     * Translates common API errors to user-friendly English messages.
+     *
+     * @param string|array $rawError
+     * @return string
      */
-    private function translateError($rawError)
+    private function translateError($rawError): string
     {
-        if (strpos($rawError, '401') !== false) {
-            return 'Credențiale incorecte sau Subscription Key expirat.';
+        $errorStr = is_array($rawError) ? json_encode($rawError) : (string)$rawError;
+
+        if (strpos($errorStr, '401') !== false) {
+            return 'Incorrect credentials or expired Subscription Key.';
         }
-        if (strpos($rawError, '409') !== false) {
-            return 'Conflict de sesiune API (Eroare 409). Sistemul încearcă reînnoirea token-ului.';
+        if (strpos($errorStr, '409') !== false) {
+            return 'API session conflict (Error 409). The system is trying to renew the token.';
         }
-        if (strpos($rawError, 'timeout') !== false) {
-            return 'Serverul Cargus a răspuns prea greu.';
+        if (strpos($errorStr, 'timeout') !== false) {
+            return 'Cargus server responded too slowly.';
         }
-        return $rawError; 
+        
+        return $errorStr; 
     }
 }
