@@ -1,7 +1,9 @@
 <?php
+declare(strict_types=1);
+
 /**
  * cargus.php
- * Version: 1.0.4
+ * Version: 1.0.5
  * @author    Quark
  * @copyright 2026 Quark
  * @license   Proprietary
@@ -11,14 +13,23 @@ if (!defined('_PS_VERSION_')) {
     exit;
 }
 
-// 1. Încercăm încărcarea automată prin Composer
+// Autoloader Hibrid (Regulă Fixă)
 if (file_exists(dirname(__FILE__) . '/vendor/autoload.php')) {
     require_once dirname(__FILE__) . '/vendor/autoload.php';
 } else {
-    // 2. Fallback manual dacă arhiva nu conține directorul vendor/ (evită ClassNotFoundError)
-    require_once dirname(__FILE__) . '/src/Install/Installer.php';
-    require_once dirname(__FILE__) . '/src/Helper/CargusV3Client.php';
-    require_once dirname(__FILE__) . '/src/Service/Config/ConfigurationService.php';
+    spl_autoload_register(function ($class) {
+        $prefix = 'Cargus\\';
+        $base_dir = dirname(__FILE__) . '/src/';
+        $len = strlen($prefix);
+        if (strncmp($prefix, $class, $len) !== 0) {
+            return;
+        }
+        $relative_class = substr($class, $len);
+        $file = $base_dir . str_replace('\\', '/', $relative_class) . '.php';
+        if (file_exists($file)) {
+            require_once $file;
+        }
+    });
 }
 
 use Cargus\Install\Installer;
@@ -31,7 +42,7 @@ class Cargus extends CarrierModule
     {
         $this->name = 'cargus';
         $this->tab = 'shipping_logistics';
-        $this->version = '1.0.4';
+        $this->version = '1.0.5';
         $this->author = 'Quark';
         $this->need_instance = 0;
         $this->bootstrap = true;
@@ -40,10 +51,10 @@ class Cargus extends CarrierModule
 
         $this->displayName = $this->l('Cargus Courier Premium');
         $this->description = $this->l('Advanced shipping integration with Cargus API V3. Supports Ship & Go and Heavy Cargo.');
-        $this->ps_versions_compliancy = array('min' => '8.2.0', 'max' => '9.9.9');
+        $this->ps_versions_compliancy = ['min' => '8.2.0', 'max' => '9.9.9'];
     }
 
-    public function install()
+    public function install(): bool
     {
         if (!parent::install()) {
             return false;
@@ -58,7 +69,7 @@ class Cargus extends CarrierModule
                $this->registerHook('displayCarrierExtraContent');
     }
 
-    public function uninstall()
+    public function uninstall(): bool
     {
         $installer = new Installer($this);
         $installer->uninstallDatabase();
@@ -67,24 +78,25 @@ class Cargus extends CarrierModule
         return parent::uninstall();
     }
 
-    public function getContent()
+    public function getContent(): string
     {
         $output = '';
 
-        if (Tools::isSubmit('dismissCargusWarning')) {
+        if (\Tools::isSubmit('dismissCargusWarning')) {
             Configuration::updateValue('CARGUS_TAX_ZONE_WARNING', 0);
             $redirectUrl = $this->context->link->getAdminLink('AdminModules', true) . '&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name;
-            Tools::redirectAdmin($redirectUrl);
+            \Tools::redirectAdmin($redirectUrl);
         }
 
-        if (Tools::isSubmit('submitCargusConfig')) {
+        if (\Tools::isSubmit('submitCargusConfig')) {
             $configService = new ConfigurationService();
-            $result = $configService->saveConfiguration(Tools::getAllValues());
+            $result = $configService->saveConfiguration(\Tools::getAllValues());
 
-            if ($result['success']) {
+            if (isset($result['success']) && $result['success']) {
                 $output .= $this->displayConfirmation($this->l('Settings successfully saved.'));
             } else {
-                $output .= $this->displayError($result['message']);
+                $errorMessage = isset($result['message']) ? $result['message'] : 'Unknown error occurred.';
+                $output .= $this->displayError($errorMessage);
             }
         }
 
@@ -95,7 +107,7 @@ class Cargus extends CarrierModule
         return $output . $this->renderHelperForm();
     }
 
-    private function renderTaxZoneWarning()
+    private function renderTaxZoneWarning(): string
     {
         $dismissUrl = $this->context->link->getAdminLink('AdminModules', true) . '&configure=' . $this->name . '&dismissCargusWarning=1';
 
@@ -121,32 +133,32 @@ class Cargus extends CarrierModule
             if (is_array($response) && !isset($response['error'])) {
                 foreach ($response as $loc) {
                     $options[] = [
-                        'id_location' => $loc['LocationId'],
-                        'name' => $loc['Name'] . ' - ' . $loc['AddressText']
+                        'id_location' => isset($loc['LocationId']) ? $loc['LocationId'] : '',
+                        'name' => (isset($loc['Name']) ? $loc['Name'] : '') . ' - ' . (isset($loc['AddressText']) ? $loc['AddressText'] : '')
                     ];
                 }
             }
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             // Silently ignore if credentials are wrong or missing
         }
 
         return $options;
     }
 
-    private function renderHelperForm()
+    private function renderHelperForm(): string
     {
-        $helper = new HelperForm();
+        $helper = new \HelperForm();
 
         $helper->show_toolbar = false;
         $helper->table = $this->table;
         $helper->module = $this;
-        $helper->default_form_language = $this->context->language->id;
-        $helper->allow_employee_form_lang = Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG', 0);
+        $helper->default_form_language = (int)$this->context->language->id;
+        $helper->allow_employee_form_lang = (int)Configuration::get('PS_BO_ALLOW_EMPLOYEE_FORM_LANG', 0);
         $helper->identifier = $this->identifier;
         $helper->submit_action = 'submitCargusConfig';
         $helper->currentIndex = $this->context->link->getAdminLink('AdminModules', false)
             . '&configure=' . $this->name . '&tab_module=' . $this->tab . '&module_name=' . $this->name;
-        $helper->token = Tools::getAdminTokenLite('AdminModules');
+        $helper->token = \Tools::getAdminTokenLite('AdminModules');
 
         $pickupLocations = $this->getPickupLocationsForDropdown();
 
@@ -247,9 +259,15 @@ class Cargus extends CarrierModule
             $helper->fields_value[$key] = Configuration::get($key);
         }
 
-        if (!$helper->fields_value['CARGUS_CALC_MODE']) $helper->fields_value['CARGUS_CALC_MODE'] = 'local';
-        if (!$helper->fields_value['CARGUS_HEAVY_THRESHOLD']) $helper->fields_value['CARGUS_HEAVY_THRESHOLD'] = 31;
-        if (!$helper->fields_value['CARGUS_DEFAULT_PAYER']) $helper->fields_value['CARGUS_DEFAULT_PAYER'] = 1;
+        if (!$helper->fields_value['CARGUS_CALC_MODE']) {
+            $helper->fields_value['CARGUS_CALC_MODE'] = 'local';
+        }
+        if (!$helper->fields_value['CARGUS_HEAVY_THRESHOLD']) {
+            $helper->fields_value['CARGUS_HEAVY_THRESHOLD'] = 31;
+        }
+        if (!$helper->fields_value['CARGUS_DEFAULT_PAYER']) {
+            $helper->fields_value['CARGUS_DEFAULT_PAYER'] = 1;
+        }
 
         return $helper->generateForm($fields_form);
     }
@@ -275,6 +293,6 @@ class Cargus extends CarrierModule
      */
     public function getOrderShippingCostExternal($params)
     {
-        return $this->getOrderShippingCost($params, 0);
+        return $this->getOrderShippingCost($params, 0.0);
     }
 }
